@@ -180,10 +180,8 @@ esp_mqtt_client_handle_t client;
 static const char *msg_connecting = "Hello, Connected to Broker";
 
 static const char *topic_connecting = "home/test/connecting";
-static const char *topic_sub_led1 = "home/test/switch1/esp";
-static const char *topic_pub_led1 = "home/test/switch1/esp";
-static const char *topic_sub_led2 = "home/test/switch2/esp";
-static const char *topic_pub_led2 = "home/test/switch2/esp";
+static const char *topic_pub_sub_led1 = "home/test/switch1/esp";
+static const char *topic_pub_sub_led2 = "home/test/switch2/esp";
 static const char *topic_pub_dht11 = "home/test/sensor/dht11";
 
 bool stt_led1 = false, stt_led2 = false;
@@ -195,8 +193,8 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_CONNECTED");
-            esp_mqtt_client_subscribe(client, topic_sub_led1, 0);
-            esp_mqtt_client_subscribe(client, topic_sub_led2, 0);
+            esp_mqtt_client_subscribe(client, topic_pub_sub_led1, 0);
+            esp_mqtt_client_subscribe(client, topic_pub_sub_led2, 0);
             esp_mqtt_client_publish(client, topic_connecting, msg_connecting, 5, 0, 0);
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_SUBSCRIBED");
@@ -354,7 +352,7 @@ void handle_intrr(void * pvParameters) {
                     gpio_set_level(LED1, stt_led1);
                     char *msg = "";
                     msg = (stt_led1 == true) ? "ON":"OFF";
-                    esp_mqtt_client_publish(client, topic_pub_led1, msg, strlen(msg), 0, 0);
+                    esp_mqtt_client_publish(client, topic_pub_sub_led1, msg, strlen(msg), 0, 0);
 				}
 			}
 			if(esp_timer_get_time()/1000 - time_db_off > 250)
@@ -366,7 +364,7 @@ void handle_intrr(void * pvParameters) {
                     gpio_set_level(LED2, stt_led2);
                     char *msg = "";
                     msg = (stt_led2 == true) ? "ON":"OFF";
-                    esp_mqtt_client_publish(client, topic_pub_led2, msg, strlen(msg), 0, 0);
+                    esp_mqtt_client_publish(client, topic_pub_sub_led2, msg, strlen(msg), 0, 0);
 				}
 			}
        }
