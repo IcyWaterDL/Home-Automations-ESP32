@@ -27,16 +27,10 @@
 #include "mqtt_client.h"
 
 #include "driver/gpio.h"
-#include "driver/uart.h"
 
 #include "dht11.h"
-#include "json_generator.h"
 
 // pin gpio
-#define LED1 2
-#define LED2 15
-#define B4  4
-#define B0  0
 #define DHT11_PINOUT 5
 
 #define BUF_SIZE (1024)
@@ -177,14 +171,18 @@ void wifi_init_sta(void)
 */
 esp_mqtt_client_handle_t client;
 
-static const char *msg_connecting = "Hello, Connected to Broker";
+static const char *topic_configT = "homeassistant/sensor/sensorBedroomT/config";
+static const char *topic_configH = "homeassistant/sensor/sensorBedroomH/config";
+static const char *topic_state = "homeassistant/sensor/sensorBedroom/state";
 
-static const char *topic_connecting = "home/test/connecting";
-static const char *topic_pub_sub_led1 = "home/test/switch1/esp";
-static const char *topic_pub_sub_led2 = "home/test/switch2/esp";
-static const char *topic_pub_dht11 = "home/test/sensor/dht11";
-
-bool stt_led1 = false, stt_led2 = false;
+static const char *payload_configT = "{\"device_class\": \"temperature\",\"name\": \"Temperature\",\
+					 \"state_topic\": \"homeassistant/sensor/sensorBedroom/state\",\ 
+					 \"unit_of_measurement\": \"°C\", \"value_template\": \"{{ value_json.temperature}}\",\
+					 \"retain\": true}";
+static const char *payload_configH = "{\"device_class\": \"humidity\",\"name\": \"Humidity\",\
+					 \"state_topic\": \"homeassistant/sensor/sensorBedroom/state\",\ 
+					 \"unit_of_measurement\": \"%\", \"value_template\":\
+					 \"{{ value_json.humidity}}\", \"retain\": true}";
 
 static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
 {
@@ -193,9 +191,11 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
     switch (event->event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_CONNECTED");
-            esp_mqtt_client_subscribe(client, topic_pub_sub_led1, 0);
-            esp_mqtt_client_subscribe(client, topic_pub_sub_led2, 0);
-            esp_mqtt_client_publish(client, topic_connecting, msg_connecting, 5, 0, 0);
+            esp_mqtt_client_publish(client, topic_configT, "", 0, 0, 1);	/* Delete device is created*/
+            esp_mqtt_client_publish(client, topic_configH, "", 0, 0, 1);
+            esp_mqtt_client_publish(client, topic_configT, payload_configT, strlen(payload_configT), 0, 1);
+            esp_mqtt_client_publish(client, topic_configH, payload_configH, strlen(payload_configH), 0, 1);
+            
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_SUBSCRIBED");
             break;
@@ -203,46 +203,6 @@ static esp_err_t mqtt_event_handler_cb(esp_mqtt_event_handle_t event)
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_DATA");
             printf("TOPIC = %.*s, ", event->topic_len, event->topic);
             printf("DATA = %.*s\r\n", event->data_len, event->data);
-            printf("len = %d", event->topic_len);
-            char * topic;
-            char * data;
-            if (strstr(event->topic, "home/test/switch1/esp") != NULL) {
-                topic = topic_sub_led1;
-            }
-            else if (strstr(event->topic, "home/test/switch2/esp") != NULL) {
-                topic = topic_sub_led2;
-            }
-            else topic = "";
-
-            if (strstr(event->data, "ON") != NULL) {
-                data = "ON";
-            }
-            else if (strstr(event->data, "OFF") != NULL) {
-                data = "OFF";
-            }
-            else data = "";
-
-            printf("\ntopic = %s, data = %s\n", topic, data);
-            if (strcmp(topic, topic_sub_led1) == 0) {
-                if (strcmp(data, "ON") == 0) {
-                    gpio_set_level(LED1, 1);
-                    stt_led1 = true;
-                }
-                else if (strcmp(data, "OFF") == 0) {
-                    gpio_set_level(LED1, 0);
-                    stt_led1 = false;
-                }
-            }
-            else if (strcmp(topic, topic_sub_led2) == 0) {
-                if (strcmp(data, "ON") == 0) {
-                    gpio_set_level(LED2, 1);
-                    stt_led2 = true;
-                }
-                else if (strcmp(data, "OFF") == 0) {
-                    gpio_set_level(LED2, 0);
-                    stt_led2 = false;
-                }
-            }
             break;
         case MQTT_EVENT_ERROR:
             ESP_LOGI(TAG_MQTT, "MQTT_EVENT_ERROR");
@@ -263,7 +223,7 @@ static void mqtt_app_start(void)
 {
     // CONFIG_BROKER_URL
     esp_mqtt_client_config_t mqtt_cfg = {
-        .uri = "mqtt://192.168.0.100:1883",
+        .uri = "mqtt://192.168.0.101:1883",
         .username = "homeassistant",
         .password = "EeBai0iekeunai7quoh5ebei9aighoojo1woo0iocee2oi9OhquahmoibeDi3iez",
     };
@@ -272,117 +232,15 @@ static void mqtt_app_start(void)
     esp_mqtt_client_start(client);
 }
 
-typedef struct {
-    char buf[256];
-    size_t offset;
-} json_gen_test_result_t;
-
-typedef struct {
-    int temperature, humidity;
-} message_t;
-
-static void flush_str(char *buf, void *priv) {
-    json_gen_test_result_t *result = (json_gen_test_result_t *)priv;
-    if (result) {
-        if (strlen(buf) > sizeof(result->buf) - result->offset) {
-            printf("Result Buffer too small\r\n");
-            return;
-        }
-        memcpy(result->buf + result->offset, buf, strlen(buf));
-        result->offset += strlen(buf);
-    }
-}
-
-static void json_gen_perform_test(json_gen_test_result_t *result, message_t msg) {
-	char buf[20];
-    memset(result, 0, sizeof(json_gen_test_result_t));
-	json_gen_str_t jstr;
-	json_gen_str_start(&jstr, buf, sizeof(buf), flush_str, result);
-	json_gen_start_object(&jstr);
-    json_gen_obj_set_float(&jstr, "temperature", msg.temperature);
-    json_gen_obj_set_float(&jstr, "humidity", msg.humidity);
-	json_gen_end_object(&jstr);
-	json_gen_str_end(&jstr);
-}
-
-void IRAM_ATTR gpio_input_handler(void* arg)  {
-    uint32_t gpio_num = (uint32_t) arg;
-    xQueueSendFromISR(xQueueButton, &gpio_num, NULL);
-}
-
-void init_gpio_input(gpio_num_t gpio_num) {
-    gpio_config_t io_conf;
-    io_conf.pin_bit_mask = 1ull << gpio_num;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pull_up_en = 1;
-    io_conf.pull_down_en = 0;
-    io_conf.intr_type = GPIO_INTR_NEGEDGE;
-    gpio_config(&io_conf);
-
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(gpio_num, gpio_input_handler, (void*) gpio_num);
-}
-
-void init_gpio_output(gpio_num_t gpio_num) {
-    gpio_config_t io_conf;
-    io_conf.pin_bit_mask = 1ull << gpio_num;
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    io_conf.pull_up_en = 0;
-    io_conf.pull_down_en = 0;
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&io_conf);
-}
-
-// Tasks----------------------------------------------------------------
-
-void handle_intrr(void * pvParameters) {
-    uint32_t io_num;
-    uint64_t time_db_on = 0, time_db_off = 0;
-
-    while(1)
-    {
-        if(xQueueReceive(xQueueButton, &io_num, portMAX_DELAY))
-        {
-			if(esp_timer_get_time()/1000 - time_db_on > 250)
-			{
-				if(io_num == B4 && gpio_get_level(io_num) == 0)
-				{
-                    time_db_on = esp_timer_get_time()/1000;
-                    stt_led1 = !stt_led1;
-                    gpio_set_level(LED1, stt_led1);
-                    char *msg = "";
-                    msg = (stt_led1 == true) ? "ON":"OFF";
-                    esp_mqtt_client_publish(client, topic_pub_sub_led1, msg, strlen(msg), 0, 0);
-				}
-			}
-			if(esp_timer_get_time()/1000 - time_db_off > 250)
-			{
-				if(io_num == B0 && gpio_get_level(io_num) == 0)
-				{
-                    time_db_off = esp_timer_get_time()/1000;
-                    stt_led2 = !stt_led2;
-                    gpio_set_level(LED2, stt_led2);
-                    char *msg = "";
-                    msg = (stt_led2 == true) ? "ON":"OFF";
-                    esp_mqtt_client_publish(client, topic_pub_sub_led2, msg, strlen(msg), 0, 0);
-				}
-			}
-       }
-    }
-}
-
-void pub_task(void *para) {
+void publish_msg_task(void *param) {
     struct dht11_reading dht11;
-    for (;;) {
+    while (1) {
         dht11 = DHT11_read();
         float temp = dht11.temperature;
         float humi = dht11.humidity;
-        message_t msg;
-        msg.temperature = temp;
-        msg.humidity = humi;
-        json_gen_test_result_t result;
-        json_gen_perform_test(&result, msg);
-        esp_mqtt_client_publish(client, topic_pub_dht11, result.buf, strlen(result.buf), 0, 0);
+        char *msg = {'\0'};
+        sprintf(msg, "{\"temperature\":%0.2f, \"humidity\":%0.2f}", temp, humi);
+        esp_mqtt_client_publish(client, topic_state, msg, strlen(msg), 0, 0);
         vTaskDelay(1000/portTICK_PERIOD_MS);
     }
 }
@@ -413,15 +271,8 @@ void app_main(void)
     
     vTaskDelay(1000/portTICK_PERIOD_MS);
 
-    init_gpio_output(LED1);
-    init_gpio_output(LED2);
-    init_gpio_input(B0);
-    init_gpio_input(B4);
     DHT11_init(DHT11_PINOUT);
 
-    xQueueButton = xQueueCreate(1, sizeof(uint32_t));
-
-    xTaskCreate(handle_intrr, "handle interrupt task", 4096, NULL, 4, NULL);
-    xTaskCreate(pub_task, "publish dht11", 4096, NULL, 4, NULL);
+    xTaskCreate(publish_msg_task, "publish_msg_task", 4096, NULL, 5, NULL);
 
 }
